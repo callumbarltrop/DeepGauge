@@ -1,43 +1,48 @@
+#Load in preamble containing functions and calling packages
 source("preamble.R")
+
+#Flag for whether to fit the model. Saves time if the model weights are already computed
 fit_models = T
+
 # Arguments ---------------------------------------------
 
-#First argument determines the quantile level 
+#Specify the quantile level 
 quant.level = 0.90
 
-#Fifth argument determines whether (1) or not (0) a censored likelihood is used
-censored.nll = 0
-
-#Sixth argument determines the random seed for generating initial NN weights
-seed = 0
-
-#Eight argument determines the number of units in the hidden layers of the quantile regression neural network
+#Specify the number of units in the hidden layers of the quantile regression neural network
 quant.nunits = eval(parse(text="c(64,64,64)"))
 
-#Ninth argument determines the number of units in the hidden layers of the deepGauge neural network
-gauge.nunits = eval(parse(text="c(64,64,64)")) #rerun with 32x32x32
+#Specify the number of units in the hidden layers of the deepGauge neural network
+gauge.nunits = eval(parse(text="c(64,64,64)")) 
 
+# Load in data ------------------------------------------------------------
 
-# Quantile regression -----------------------------------------------------
-
+#Load in example data set 
 site_num = 1
 
 data_orig = readRDS(file=paste0("wave_data_site_",site_num,".rds"))
 data_orig = cbind(data_orig$hs,data_orig$ws,data_orig$mslp)
 
+#Transform data to Laplace coordinates using rank/empirical transform
 data_lap = apply(apply(data_orig,2,function(x){return(rank(x,ties.method = "random")/(length(x)+1))}),2,Laplace_inverse)
 
-polar = rect2polar(t(data_lap)) #Get polar coordinates
+#Compute polar coordinates - see https://en.wikipedia.org/wiki/N-sphere
+polar = rect2polar(t(data_lap)) 
 
+#Compute sample size 
 n = dim(data_lap)[1]
 
+#Compute dimension of data
 d = dim(data_lap)[2]
 
-#### Instigate Keras and Tensorflow ####
+# Quantile regression procedure -----------------------------------------------------
 
-#reticulate::use_condaenv("tensorflow", required = T)
+## Instigate Keras and Tensorflow ##
+
+#Load in virtual environment called 'myenv'
 reticulate::use_virtualenv("myenv", required = T)
 
+#Load in keras and tensorflow
 packages = c("keras","tensorflow")
 package.check <- lapply(
   packages,
@@ -49,31 +54,34 @@ package.check <- lapply(
   }
 )
 
-sess = k_get_session()
+#Call tensorflow session 
+# sess = k_get_session()
+sess = tf$compat$v1$keras$backend$get_session()
 sess$list_devices()
-tf$random$set_seed(1) #Set seed for random initial dense layer weights. Keep this the same as the seed for the copula simulation
 
-#Create training data; I call the response Y.
+#Set seed for random initial dense layer weights. 
+tf$random$set_seed(1) 
+
+#Create training data; we label the response Y and predictor variables W.
 Y=polar$r
-W=data_lap/Y
+W=data_lap/polar$r #These are points on the hypersphere 
 
-#Make 20% validation data
+rowSums(W^2) #To illustrate that all of these points have radius 1
+
+# Select 20% of the data as a validation set
 valid.inds=sample(1:n,round(n/5))
 
 Y.train <- Y[-valid.inds]; W.train <- W[-valid.inds,]
 Y.valid <- Y[valid.inds]; W.valid <- W[valid.inds,]
 
-###### Build Keras model ######
-
 ## Input layer ##
-#This is just so that Keras knows the shape of the input to expect.
+#T his is so that Keras knows the shape of the input to expect.
 
 input.pseudo.angles <- layer_input(shape = d, name = 'input.pseudo.angles')
 
 ## Densely-connected MLP ##
 
 # We define a ReLU neural network with exponential activation in the final layer (to ensure that the quantile is strictly positive)
-
 qBranch <- input.pseudo.angles %>%
   layer_dense(units = quant.nunits[1], activation = 'relu', name = 'q_dense1',
               kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) #First hidden layer
@@ -86,7 +94,7 @@ for(i in 2:length(quant.nunits)){
 qBranch  <- qBranch %>% layer_dense(units =1, activation = "exponential", name = 'q_final',
                                     kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) #By setting the initial weights to 0 in the last layer, the output will always be exp(log(init_q))=init_q.
  
-##### Model compilation #######
+## Model compilation ##
 
 # Construct Keras model
 model <- keras_model(
@@ -96,9 +104,9 @@ model <- keras_model(
 summary(model)
 
 # Define the loss. Note that custom loss functions must be written in a specific way, with input (y_true, y_pred)
-# and all function calls using the Keras/Tensorflow backend, e.g., K$max.
+# All function calls must use the Keras/Tensorflow backend, e.g., K$max.
 
-# For quantile estimation, we use the check/pinball/tilted loss.
+# For quantile regression, we use the check/pinball/tilted loss.
 tilted_loss <- function( y_true, y_pred) {
   K <- backend()
   
@@ -120,14 +128,18 @@ checkpoint <- callback_model_checkpoint(filepath=paste0("QR_est/qr_fit_",site_nu
                                         save_best_only = TRUE, save_weights_only = TRUE, mode = "min",
                                         save_freq = "epoch")
 
+## Train Keras model ##
 
-###### Train Keras model ######
+# Set number of epochs for training
+n.epochs <- 500 
 
-n.epochs <- 500 # Set number of epochs for training
-batch.size <- 1024 # Set mini-batch size
+# Set mini-batch size
+batch.size <- 1024 
+
+###HEREHEHEHEHEHEHEHEH
 
 if(fit_models == T){
-# Train Keras model. Loss values will be story in history object.
+# Train Keras model. Loss values will be stored in history object.
 history <- model %>% fit(
   list(W.train), Y.train,
   epochs = n.epochs, batch_size = batch.size,
@@ -342,7 +354,7 @@ initial.gauge.weights = model$get_weights()
 
 #Find and uses only exceedances of Y above pred.quant
 exceed.inds=which(Y > pred.quant)
-if(censored.nll==0) Y[-exceed.inds]=-1e10
+Y[-exceed.inds]=-1e10
 
 # Get the lower bound for R, i.e., the quant.level quantile estimate
 # We fit the truncated gamma above this level 
@@ -408,40 +420,26 @@ alphaBranch <- input.pseudo.angles %>% layer_dense(units = 1 ,activation = 'relu
 
 input.glb <- layer_g_lb(input.pseudo.angles,input_dim=d)
 
-if(seed!=0){
-  g.xBranch <- input.pseudo.angles %>%
-    layer_dense(units = gauge.nunits[1], activation = 'relu', name = 'g.x_dense1',
-                kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) #First hidden layer
-  if(length(gauge.nunits) >= 2){              
-    for(i in 2:length(gauge.nunits)){
-      g.xBranch  <- g.xBranch  %>%
-        layer_dense(units =gauge.nunits[i], activation = 'relu', name = paste0('g.x_dense',i),
-                    kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4))  #Subsequent hidden layers
-    }
+
+g.xBranch <- input.pseudo.angles %>%
+  layer_dense(units = gauge.nunits[1], activation = 'relu', name = 'g.x_dense1',
+              kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
+              weights=list(initial.gauge.weights[[1]],initial.gauge.weights[[2]])) #First hidden layer
+if(length(gauge.nunits) >= 2){              
+  for(i in 2:length(gauge.nunits)){
+    g.xBranch  <- g.xBranch  %>%
+      layer_dense(units =gauge.nunits[i], activation = 'relu', name = paste0('g.x_dense',i),
+                  kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
+                  weights=list(initial.gauge.weights[[2*i-1]],initial.gauge.weights[[2*i]]))  #Subsequent hidden layers
   }
-  
-  g.xBranch  <- g.xBranch %>% layer_dense(units =1, activation = "relu", name = 'g.x_final',
-                                          kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) 
-}else{
-  g.xBranch <- input.pseudo.angles %>%
-    layer_dense(units = gauge.nunits[1], activation = 'relu', name = 'g.x_dense1',
-                kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
-                weights=list(initial.gauge.weights[[1]],initial.gauge.weights[[2]])) #First hidden layer
-  if(length(gauge.nunits) >= 2){              
-    for(i in 2:length(gauge.nunits)){
-      g.xBranch  <- g.xBranch  %>%
-        layer_dense(units =gauge.nunits[i], activation = 'relu', name = paste0('g.x_dense',i),
-                    kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
-                    weights=list(initial.gauge.weights[[2*i-1]],initial.gauge.weights[[2*i]]))  #Subsequent hidden layers
-    }
-  }
-  
-  g.xBranch  <- g.xBranch %>% layer_dense(units =1, activation = "relu", name = 'g.x_final',
-                                          kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
-                                          weights=list(initial.gauge.weights[[2*length(gauge.nunits)+1]],initial.gauge.weights[[2*length(gauge.nunits)+2]]))
-  
-  
 }
+
+g.xBranch  <- g.xBranch %>% layer_dense(units =1, activation = "relu", name = 'g.x_final',
+                                        kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4),
+                                        weights=list(initial.gauge.weights[[2*length(gauge.nunits)+1]],initial.gauge.weights[[2*length(gauge.nunits)+2]]))
+
+
+
 gBranch  <- layer_add(g.xBranch,input.glb) #Add g.x to g.lb to get an estimate for g
 
 
@@ -552,20 +550,12 @@ summary(model2)
 
 # Compile the model with the adam optimiser. Use truncGamma_nll if censored.nll == 0 and censGamma_nll if censored.nll == 1
 
-if(censored.nll==0){
-  model2 %>% compile(
-    optimizer=optimizer_adam(learning_rate=0.001),
-    loss = truncGamma_nll,
-    run_eagerly=T
-  )
-}else if(censored.nll==1){
-  model2 %>% compile(
-    optimizer=optimizer_adam(learning_rate=0.001),
-    loss = censGamma_nll,
-    run_eagerly=T
-  )
-  
-}
+model2 %>% compile(
+  optimizer=optimizer_adam(learning_rate=0.001),
+  loss = truncGamma_nll,
+  run_eagerly=T
+)
+
 if(fit_models == T){
 history <- model2 %>% fit(
   list(W,r.lb), Y.train,
