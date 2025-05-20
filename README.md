@@ -1,4 +1,10 @@
 # deepGauge
+
+First, make sure git is installed on your computer.
+
+Next, make sure you have installed the reticulate package on R.
+
+Then, install the correct version of Python via the commands below. 
  
 ## Tensorflow Installation 
 
