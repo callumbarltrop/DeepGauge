@@ -73,6 +73,14 @@ Laplace_cdf = function(x){ #Standard Laplace cumulative distribution function
   return(u)
 }
 
+l2_norm = function(x){
+  return(sqrt(sum(x^2)))
+}
+
+linf_norm = function(x){
+  return(max(abs(x)))
+}
+
 # This loss is the negative log-likelihood for R| R > r.lb~truncatedGamma(alpha, g).
 truncGamma_nll <- function( y_true, y_pred) {
   

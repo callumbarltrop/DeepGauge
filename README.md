@@ -6,6 +6,14 @@ Next, make sure you have installed the reticulate package on R.
 
 Then, install the correct version of Python via the commands below. 
  
+We will then create a virtual environment called 'myenv' which we will use when running Keras.
+ 
+Restart R, then try loading in myenv. If this does not work, use ChatGPT to debug.
+
+We will then install tensorflow and keras in the virtual environment. This will ensure both packages can be access by the python session.
+
+Finally, we check that keras has install properly and there are no issues. 
+ 
 ## Tensorflow Installation 
 
 ```r
@@ -17,7 +25,7 @@ reticulate::virtualenv_create(envname = 'myenv',
                               python=path_to_python,
                               version=py_version)
 
-path<- paste0(reticulate::virtualenv_root(),"/myenv/bin/python")
+path<- paste0(reticulate::virtualenv_root(),"/myenv/bin/python") #these bits not needed
 Sys.setenv(RETICULATE_PYTHON = path) #Set Python interpreter to that installed in myenv
 
 tf_version="2.11.0" 

@@ -1,0 +1,2 @@
+model_checkpoint_path: "gauge_fit_1"
+all_model_checkpoint_paths: "gauge_fit_1"
