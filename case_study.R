@@ -10,13 +10,13 @@ set.seed(2311732)
 # Arguments that specify the architectures and threshold level ---------------------------------------------
 
 #Specify the quantile level 
-quant.level = 0.90
+quant.level = 0.80
 
 #Specify the number of units in the hidden layers of the quantile regression neural network
-quant.nunits = eval(parse(text="c(64,64,64)"))
+quant.nunits = eval(parse(text="c(64,64)"))
 
 #Specify the number of units in the hidden layers of the deepGauge neural network
-gauge.nunits = eval(parse(text="c(64,64,64)")) 
+gauge.nunits = eval(parse(text="c(64,64)")) 
 
 # Load in data ------------------------------------------------------------
 
@@ -131,7 +131,7 @@ checkpoint <- callback_model_checkpoint(filepath=paste0("QR_est/qr_fit_",site_nu
 
 #Train the Keras model
 #Set number of epochs for training
-n.epochs <- 500 
+n.epochs <- 50
 
 #Set mini-batch size
 batch.size <- 1024 
@@ -346,11 +346,6 @@ init_alpha=d
 #Input additional layers. Such layers ensure the estimated limit set has componentwise max and min equal to 1 and -1 (resp.)
 source("new_layers.R")					  
 
-
-#Adjust here to ensure we are doing everything correctly in accordance with the main script 
-
-
-
 #Specify input layers
 #We have three inputs; the angles, the lower bound of the gauge, and the lower bound/conditioning threshold of R. 
 
@@ -402,13 +397,14 @@ g.model <- keras_model(
   outputs = gBranch
 )
 
-#We first estimate the neural network just on angular observations. 
-#This may not result in the componentwise max and min of the limit set equalling exactly 1/-1, but it is a quick pre-training that speeds up optimisation with the dense angular grid
+#We first estimate the neural network with rescaling just on the observed angles.  
+#This may not result in the componentwise max and min of the limit set equalling exactly 1/-1, but it is a quick (additional) pre-training step
+#We then use the obtained weights to perform further optimisation using the dense angular grid for rescaling. 
 
 #Create supplement matrix  
 W.supplement = W
 
-#The lines below detail additional layers that compute the relevant rescalings to ensure the limit set has the correct componentwise max and min
+#The lines below detail additional layers that to ensure the limit set has the correct componentwise max and min
 hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
 hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
 
@@ -425,20 +421,21 @@ adjusted.g.branch <- layer_limitset_to_gauge(adjusted_dGtrans_branch, input_dim=
 #Define output of Keras model. We concatenate the three components required to evaluate the loss function.
 output <- layer_concatenate(c(alphaBranch,adjusted.g.branch,input.rlb))
 
-#Construct Keras model
+#Construct the Keras model
 model2 <- keras_model(
   inputs = c(input.pseudo.angles,input.rlb),
   outputs = output
 )
 summary(model2)
 
-#Compile the model with the adam optimiser. Use truncGamma_nll if censored.nll == 0 and censGamma_nll if censored.nll == 1
+#Compile the model with the adam optimiser. 
 #The loss function 'truncGamma_nll' is stored in the preamble.R file
 model2 %>% compile(
     optimizer=optimizer_adam(learning_rate=0.001),
     loss = truncGamma_nll,
     run_eagerly=T
   )
+
 checkpoint <- callback_model_checkpoint(filepath=paste0("Gauge_est/gauge_fit_",site_num), monitor = "val_loss", verbose = 0,
                                         save_best_only = TRUE, save_weights_only = TRUE, mode = "min",
                                         save_freq = "epoch")
@@ -446,7 +443,7 @@ checkpoint <- callback_model_checkpoint(filepath=paste0("Gauge_est/gauge_fit_",s
 #Train the model
 
 #Set number of epochs for training
-n.epochs <- 200
+n.epochs <- 50
 
 #Set mini-batch size. Needs to be roughly a multiple of the training size
 batch.size <- 4096
@@ -465,8 +462,8 @@ history <- model2 %>% fit(
 #Load the best fitting model from the checkpoint save
 model2 <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
-#We now alter the W.supplement to contain the dense hypersphere sample. This is needed to compute the scaling coefficients 
-W.supplement = rbind(W,sphere_sample)
+#We now alter the W.supplement to be the dense hypersphere sample. This additional step makes sure the estimated limit set has exactly 1 and -1 for componentwise max and min
+W.supplement = sphere_sample
 
 #Adjust additional layers for dense hypersphere sample 
 hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
@@ -480,7 +477,7 @@ adjusted_dGtrans_branch <- layer_adjust(input_dim=d)(dGtransbranch,hw_coordmax_b
 adjusted.g.branch <- layer_limitset_to_gauge(adjusted_dGtrans_branch, input_dim=d)
 
 #Set number of epochs for training
-n.epochs <- 100 
+n.epochs <- 50
 
 #Set mini-batch size. Needs to be roughly a multiple of the training size
 batch.size <- 4096 
@@ -512,37 +509,281 @@ history <- model2 %>% fit(
   
 )		
 }
+
 #Load the best fitting model from the checkpoint save
 model2 <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 gauge_model <- model2
 				 
-#Compute estimations of the gauge function and limit set 
-predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(r.lb)))) 
+#Compute the gauge function for each point on the dense hypersphere sample  
+pred.gauge.hypersphere =k_get_value(gauge_model(list(k_constant((sphere_sample)),
+                                                    k_constant(as.matrix(rep(1,nrow(sphere_sample)))))))[,2]
+#Compute the limit set at all angles, then evaluate the componentwise maxima and minima
+#These should be approx. equal to 1 and -1. Note this will not be perfect  
+print(apply(sphere_sample/pred.gauge.hypersphere,2,max))
+print(apply(sphere_sample/pred.gauge.hypersphere,2,min))
 
-#Check all componentwise max and min are approx. equal to 1 and -1 
-print(apply(W/predictions[,2],2,max))
-print(apply(W/predictions[,2],2,min))
+# Compute a range of visual diagnostics  ----------------------------------------------------
 
-pred.gauge.supplement =k_get_value(gauge_model(list(k_constant((W.supplement)),
-                                                    k_constant(as.matrix(rep(1,nrow(W.supplement)))))))[,2]
-print(apply(W.supplement/pred.gauge.supplement,2,max))
-print(apply(W.supplement/pred.gauge.supplement,2,min))
-
-
-
-# Compute diagnostics  ----------------------------------------------------
-
-
-
-#First reset everything - make sure we are just looking at exceedances of the threshold
-
-R=polar$r
-W=data_lap/R
-
+#Load in the best fitting quantile and gauge function models 
 quant.model <- load_model_tf(paste0("QR_est/best_qr_fit_",site_num),custom_objects = list("tilted_loss" = tilted_loss))
 
 gauge_model <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+
+#Evaluate quantile function at observed angles 
+pred.quant = k_get_value(quant.model(k_constant(W))) 
+
+#Compute threshold exceeding observations  
+exceed.inds=which(R > pred.quant)
+R <- R[exceed.inds]; W <- W[exceed.inds,]
+
+#Get the lower bound for R, i.e., the quant.level quantile estimate
+r.lb <- pred.quant[exceed.inds] #Only for exceedances R > pred.quant
+
+#Set the dimesions for the lower bound vector - for Keras 
+dim(r.lb)=c(length(r.lb),1)
+
+#Compute the QQ plot associated with truncated Gamma distributions
+
+#Get gauge estimates from observed data
+predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(r.lb)))) 
+
+#First column of predictions gives the alpha estimate. 
+pred.alpha=predictions[1,1]
+
+#Second column of predictions gives the gauge estimate. 
+pred.gauge=predictions[,2]
+
+#Transform the observations to the radial scale using the probability integral transform
+unif_exceedances =  exp(pgamma(R,shape = pred.alpha,rate = pred.gauge,lower.tail = F,log.p=T)-pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F,log.p=T))
+
+#Transform the the observations to the standard exponential scale 
+exp_exceedances = qexp(unif_exceedances,lower.tail=F)
+
+#Select how many quantiles to assess 
+m = 1000
+
+#Compute empirical/observed quantiles 
+observed_quants = quantile(exp_exceedances, probs=(1:m)/(m+1))
+
+#Compute theoretical/model quantiles 
+theoretical_quants = qexp((1:m)/(m+1))
+
+#Save plot in a folder 
+pdf(file=paste0("Diagnostics/qqplot_",site_num,".pdf"),width=4,height=4)
+
+#Set plotting parameters
+par(mfrow=c(1,1),mgp=c(2.25,0.75,0),mar=c(4,4,1,1))
+
+#Plot empirical against model quantiles 
+plot(theoretical_quants,observed_quants,xlim=range(theoretical_quants,observed_quants),
+     ylim=range(theoretical_quants,observed_quants),pch=16,col=1,ylab="Empirical",xlab="Model",
+     cex.lab=1.3, cex.axis=1.2,cex.main=1.8, cex=0.5)
+abline(a=0,b=1,lwd=3,col=2)
+points(theoretical_quants,observed_quants,pch=16,col=1, cex=0.5)
+
+dev.off()
+
+#Compute lower dimensional limit sets for each subvector 
+#This involves a minimisation scheme with respect to any indices not within the subvector
+
+#Select points on the unit circle at which we wish to evaluate gauge function 
+phi <- seq(0,2*pi,len=151)
+
+unit_circle <- cbind(cos(phi),sin(phi))
+
+two_dim_gauge <- function(w2,subvec,d){
+  
+  n_grid = 2001
+  
+  lap_grid = seq(-20,20,length.out=n_grid)
+  
+  lap_mat = matrix(NA,ncol=d,nrow=n_grid)
+  
+  lap_mat[,subvec] = rep(w2,each=n_grid)
+  
+  lap_mat[,-subvec] = lap_grid
+  
+  r_mat = apply(lap_mat,1,l2_norm)
+  
+  w_mat = lap_mat/r_mat
+  
+  pred_quant_temp = k_get_value(quant.model(k_constant(w_mat))) 
+  
+  gauge_mat = r_mat*k_get_value(gauge_model(list(k_constant(w_mat),k_constant(pred_quant_temp))))[,2]
+  
+  min_index = which.min(gauge_mat)
+  
+  min_vec = rep(NA,3)
+  
+  min_vec[subvec] = w2
+  
+  min_vec[-subvec] = lap_grid[min_index]
+  
+  r_min = l2_norm(min_vec)
+  
+  w_min = min_vec/r_min
+  
+  dim(w_min) = c(1,d)
+  
+  r_lb_min = k_constant(k_get_value(quant.model(k_constant(w_min))))
+  
+  g_min = k_get_value(gauge_model(list(k_constant(w_min),r_lb_min)))[,2]
+  
+  return(g_min)
+  
+}
+
+
+pdf(file=paste0("Case Study/SimulationData/Validation/twodim_limitsets_",site_num,".pdf"),width=12,height=4)
+
+#Plotting parameters
+par(mfrow=c(1,3),mgp=c(2.25,0.75,0),mar=c(4,4,1,1))
+
+subvec <- c(1,2)
+
+gauge_subvec <- c()
+
+for(i in 1:nrow(unit_circle)){
+  gauge_subvec[i] <- two_dim_gauge(w2 = unit_circle[i,],subvec = subvec,d=d)
+}
+
+boundary_set_subvec <- unit_circle/gauge_subvec
+
+plot(boundary_set_subvec ,xlab="hs (Laplace)",ylab="ws (Laplace)",
+     type="l",col=2,ylim=c(-1,1),xlim=c(-1,1),lwd=4,cex.lab=1.5, cex.axis=1.2,cex.main=1.5, cex=0.5)
+
+points((data_lap/log(n/2))[,subvec],pch=16,col="grey", cex=0.5)															   
+rect(-1,-1,1,1,lwd=4,lty=2,col=NULL)
+
+subvec <- c(1,d)
+
+gauge_subvec <- apply(unit_circle, 1, two_dim_gauge,subvec = subvec,d=d)
+
+boundary_set_subvec <- unit_circle/gauge_subvec
+
+plot(boundary_set_subvec ,xlab="hs (Laplace)",ylab="mslp (Laplace)",
+     type="l",col=2,ylim=c(-1,1),xlim=c(-1,1),lwd=4,cex.lab=1.5, cex.axis=1.2,cex.main=1.5, cex=0.5)
+
+points((data_lap/log(n/2))[,subvec],pch=16,col="grey", cex=0.5)															   
+rect(-1,-1,1,1,lwd=4,lty=2,col=NULL)
+
+subvec <- c(d-1,d)
+
+gauge_subvec <- apply(unit_circle, 1, two_dim_gauge,subvec = subvec,d=d)
+
+boundary_set_subvec <- unit_circle/gauge_subvec
+
+plot(boundary_set_subvec ,xlab="ws (Laplace)",ylab="mslp (Laplace)",
+     type="l",col=2,ylim=c(-1,1),xlim=c(-1,1),lwd=4,cex.lab=1.5, cex.axis=1.2,cex.main=1.5, cex=0.5)
+
+points((data_lap/log(n/2))[,subvec],pch=16,col="grey", cex=0.5)															   
+rect(-1,-1,1,1,lwd=4,lty=2,col=NULL)
+
+
+
+dev.off()
+
+#Evaluate return level set probabilities 
+
+
+#Get gauge estimates from observed data
+predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(r.lb)))) 
+
+#First column of predictions gives the alpha estimate. 
+pred.alpha=predictions[1,1]
+
+#Second column of predictions gives the gauge estimate. 
+pred.gauge=predictions[,2]
+
+rl_set_probs = c(0.9,0.95,0.99)
+
+trunc_probs = (rl_set_probs - quant.level)/(1-quant.level)
+
+empirical_probs = c()
+
+radial_quants = qgamma(p = pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F)*trunc_probs[1] + pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = T) , shape = pred.alpha, rate = pred.gauge )
+
+empirical_probs[1] = mean(Y<=radial_quants)
+
+radial_quants = qgamma(p = pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F)*trunc_probs[2] + pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = T) , shape = pred.alpha, rate = pred.gauge )
+
+empirical_probs[2] = mean(Y<=radial_quants)
+
+radial_quants = qgamma(p = pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F)*trunc_probs[3] + pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = T) , shape = pred.alpha, rate = pred.gauge )
+
+empirical_probs[3] = mean(Y<=radial_quants)
+
+saveRDS(cbind(rl_set_probs,empirical_probs),file=paste0("Case Study/SimulationData/Validation/rl_set_probs_",site_num,".rds"))
+
+probs = exp(seq(log(0.9),log(0.999),length.out=100))
+
+trunc_probs = (probs - quant.level)/(1-quant.level)
+
+empirical_probs_function = function(tp){
+  radial_quants = qgamma(p = pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F)*tp + pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = T) , shape = pred.alpha, rate = pred.gauge )
+  
+  return(mean(Y<=radial_quants))
+  
+}
+
+empirical_probs = sapply(trunc_probs,empirical_probs_function)
+
+no_boot = 100
+
+empirical_probs_boot = matrix(NA,nrow=no_boot,ncol=length(empirical_probs))
+
+for(i in 1:no_boot){
+  set.seed(i)
+  
+  boot_data = block_bootstrap_function(data_lap,k=32) #block bootstrap with 4 day windows
+  
+  boot_polar = rect2polar(t(boot_data))
+  
+  boot_R = boot_polar$r
+  
+  boot_W = boot_data/boot_R
+  
+  pred.quant = k_get_value(quant.model(k_constant(boot_W)))
+  
+  #Get gauge estimates from observed data
+  boot_predictions = k_get_value(gauge_model(list(k_constant(boot_W),k_constant(pred.quant))))
+  
+  #First column of predictions gives the alpha estimate.
+  boot_alpha=boot_predictions[1,1]
+  
+  #Second column of predictions gives the gauge estimate.
+  boot_gauge=boot_predictions[,2]
+  
+  empirical_probs_function_boot = function(tp){
+    radial_quants = qgamma(p = pgamma(pred.quant[,1],shape = boot_alpha,rate = boot_gauge,lower.tail = F)*tp + pgamma(pred.quant[,1],shape = boot_alpha,rate = boot_gauge,lower.tail = T) , shape = boot_alpha, rate = boot_gauge )
+    
+    return(mean(boot_R<=radial_quants))
+    
+  }
+  
+  empirical_probs_boot[i,] = sapply(trunc_probs,empirical_probs_function_boot)
+}
+# save(probs,empirical_probs,empirical_probs_boot,file = paste0("Case Study/SimulationData/Validation/ret_level_set_probs_",site_num,".RData"))
+load(file = paste0("Case Study/SimulationData/Validation/ret_level_set_probs_",site_num,".RData"))
+empirical_probs_upper = apply(empirical_probs_boot,2,quantile,probs = 0.975,na.rm = T)
+empirical_probs_lower = apply(empirical_probs_boot,2,quantile,probs = 0.025,na.rm = T)
+
+
+pdf(file=paste0("Case Study/SimulationData/Validation/ret_level_set_probs_",site_num,".pdf"),width=4,height=4)
+
+#Plotting parameters
+par(mfrow=c(1,1),mgp=c(2.25,0.75,0),mar=c(4,4,1,1))
+
+plot(probs,empirical_probs,xlim=range(probs,empirical_probs,empirical_probs_boot),
+     ylim=range(probs,empirical_probs,empirical_probs_boot),pch=16,col="grey",
+     xlab="Model",ylab="Empirical",cex.lab=1.3, cex.axis=1.2,cex.main=1.8, cex=0.5)
+polygon(c(rev(probs), probs), c(rev(empirical_probs_lower), empirical_probs_upper), col = 'grey80', border = NA)
+abline(a=0,b=1,lwd=3,col=2)
+points(probs,empirical_probs,pch=16,col=1, cex=0.5)
+
+dev.off()
+
 
 r.lb.sphere = k_get_value(quant.model(k_constant(sphere_sample))) #Get the predicted quantiles/ r.lb. #Get lower bounds for g
 
@@ -556,52 +797,100 @@ dim(gauge.lb.sphere)=c(length(gauge.lb.sphere),1); dim(r.lb.sphere)=c(length(r.l
 #Get associated g estimate
 pred.gauge.sphere <- k_get_value(gauge_model(list(k_constant(sphere_sample),k_constant(r.lb.sphere))))[,2]
 
+pred.limit.set <- sphere_sample/pred.gauge.sphere
 
-pred.quant = k_get_value(quant.model(k_constant(W))) 
 
-#Find and uses only exceedances of R above pred.quant
-exceed.inds=which(R > pred.quant)
-R <- R[exceed.inds]; W <- W[exceed.inds,]
+ang_num = 150
+
+pred_angles = expand.grid(c(rep(list(seq(0,pi,length.out=ang_num)), (d-2)  ),list(seq(0,2*pi,length.out=ang_num))))
+
+unit_circle = t(polar2rect(r=rep(1,(dim(pred_angles)[1])),phi = t(pred_angles)))
+
+r.lb = k_get_value(quant.model(k_constant(unit_circle))) 
 
 # Get the lower bound for the gauge function
-gauge.lb <- apply(W,1,function(x){
+gauge.lb <- apply(unit_circle,1,function(x){
   return(max(max(x), -min(x)))
 } 
 )
 
-# Get the lower bound for R, i.e., the quant.level quantile estimate
-r.lb <- pred.quant[exceed.inds] #Only for exceedances R > pred.quant
-
 dim(gauge.lb)=c(length(gauge.lb),1); dim(r.lb)=c(length(r.lb),1)
-#QQ plot associated with truncated Gamma distributions
 
 #Get gauge estimates from observed data
-predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(r.lb)))) 
-
-#First column of predictions gives the alpha estimate. 
-pred.alpha=predictions[1,1]
+predictions_unit_circle = k_get_value(gauge_model(list(k_constant(unit_circle),k_constant(r.lb)))) 
 
 #Second column of predictions gives the gauge estimate. 
-pred.gauge=predictions[,2]
+pred.gauge=predictions_unit_circle[,2]
 
-unif_exceedances =  exp(pgamma(R,shape = pred.alpha,rate = pred.gauge,lower.tail = F,log.p=T)-pgamma(r.lb[,1],shape = pred.alpha,rate = pred.gauge,lower.tail = F,log.p=T))
+gauge_unit_radii = 1/pred.gauge
 
-exp_exceedances = qexp(unif_exceedances,lower.tail=F)
+gauge_unit_level = t(polar2rect(r=gauge_unit_radii,phi = t(pred_angles)))
 
-m = 1000
+library(rgl)
+library(magick)
+open3d()
+clear3d()
+par3d(windowRect = c(20, 30, 1000, 1000))
 
-observed_quants = quantile(exp_exceedances, probs=(1:m)/(m+1))
-theoretical_quants = qexp((1:m)/(m+1))
+points3d((data_lap/log(n/2)))
+surface3d(x=matrix(gauge_unit_level[,1], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])),
+          y=matrix(gauge_unit_level[,2], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])),
+          z=matrix(gauge_unit_level[,3], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])), alpha=.3, col="blue")
+axes3d(labels = T,expand=1,cex.axis=2)
+title3d(xlab = "Hs", ylab = "Ws", zlab = "Mslp",cex=2)
 
-pdf(file=paste0("qqplot_",site_num,".pdf"),width=4,height=4)
+play3d( spin3d( axis = c(0, 0, 1), rpm = 20), duration = 10 )
 
-#Plotting parameters
-par(mfrow=c(1,1),mgp=c(2.25,0.75,0),mar=c(4,4,1,1))
+# Save like gif
+movie3d(
+  movie="Limit_set_46_spinnyboi_001", 
+  spin3d( axis = c(0, 0, 1), rpm = 7),
+  duration = 10, 
+  dir = "Case Study/SimulationData/Validation",
+  type = "gif", 
+  clean = TRUE
+)
 
-plot(theoretical_quants,observed_quants,xlim=range(theoretical_quants,observed_quants),
-     ylim=range(theoretical_quants,observed_quants),pch=16,col=1,ylab="Empirical",xlab="Model",
-     cex.lab=1.3, cex.axis=1.2,cex.main=1.8, cex=0.5)
-abline(a=0,b=1,lwd=3,col=2)
-points(theoretical_quants,observed_quants,pch=16,col=1, cex=0.5)
+rgl.snapshot( paste0("Case Study/SimulationData/Validation/limit_set_angle1_",site_num,".png"), fmt = "png")
+# rgl.postscript( paste0("Case Study/SimulationData/Validation/limit_set_angle1_",site_num,".pdf"), fmt = "pdf")
 
-dev.off()
+view3d( theta = 0, phi = 70)
+
+#Change view 
+rgl.snapshot( paste0("Case Study/SimulationData/Validation/limit_set_angle2_",site_num,".png"), fmt = "png")
+
+view3d( theta = 90, phi = -70)
+
+#Change view 
+rgl.snapshot( paste0("Case Study/SimulationData/Validation/limit_set_angle3_",site_num,".png"), fmt = "png")
+
+view3d( theta = -90, phi = -70)
+
+#Change view 
+rgl.snapshot( paste0("Case Study/SimulationData/Validation/limit_set_angle4_",site_num,".png"), fmt = "png")
+
+open3d()
+clear3d()
+par3d(windowRect = c(20, 30, 1000, 1000))
+
+points3d((data_lap/log(n/2)))
+surface3d(x=matrix(gauge_unit_level[,1], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])),
+          y=matrix(gauge_unit_level[,2], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])),
+          z=matrix(gauge_unit_level[,3], nrow=sqrt(dim(unit_circle)[1]), ncol=sqrt(dim(unit_circle)[1])), alpha=.3, col="blue")
+axes3d(labels = F)
+title3d(xlab = "Hs", ylab = "Ws", zlab = "Mslp",cex=2)
+
+# Define a spin around the y-axis at 10 RPM
+rotation <- spin3d(axis = c(0, 1, 0), rpm = 10)
+
+play3d(rotation,duration=6)
+
+# Save frames of the animation
+movie3d(
+  rotation,                 # The rotation animation
+  duration = 6,             # Duration of the animation in seconds
+  fps = 4,                 # Frames per second
+  dir = "Case Study/SimulationData/Validation",    # Directory to save the frames
+  movie = paste0("limit_set_spin_",site_num)# Base name for the saved frames
+) #couldn't save as individual files
+
