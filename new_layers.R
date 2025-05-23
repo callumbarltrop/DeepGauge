@@ -2,7 +2,7 @@
 
 layer_compute_max <- Layer(
   classname = "ComputeMax",
-  initialize = function(input_dim, W.supplement, g.model) {
+  initialize = function(input_dim, W.supplement, g.intermediate.model) {
     super()$`__init__`()
     self$total <- tf$Variable(
       initial_value = tf$zeros(shape(input_dim)),
@@ -10,7 +10,7 @@ layer_compute_max <- Layer(
     )
   },
   call = function(inputs, ...) {
-    gBranch2 = g.model(k_constant(W.supplement))
+    gBranch2 = g.intermediate.model(k_constant(W.supplement))
     hwbranch <- tf$multiply(1/gBranch2, k_constant(W.supplement))
     
     tf$reduce_max(hwbranch, axis = 0L, keepdims = T)  }
@@ -62,7 +62,7 @@ layer_g_lb <- Layer(
 
 layer_compute_min <- Layer(
   classname = "ComputeMin",
-  initialize = function(input_dim, W.supplement, g.model) {
+  initialize = function(input_dim, W.supplement, g.intermediate.model) {
     super()$`__init__`()
     self$total <- tf$Variable(
       initial_value = tf$zeros(shape(input_dim)),
@@ -70,7 +70,7 @@ layer_compute_min <- Layer(
     )
   },
   call = function(inputs, ...) {
-    gBranch2 = g.model(k_constant(W.supplement))
+    gBranch2 = g.intermediate.model(k_constant(W.supplement))
     hwbranch <- tf$multiply(1/gBranch2, k_constant(W.supplement))
     
     tf$reduce_min(hwbranch, axis = 0L, keepdims = T)

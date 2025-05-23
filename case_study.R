@@ -426,8 +426,8 @@ g.intermediate.model <- keras_model(
 W.supplement = W
 
 #The lines below detail additional layers that to ensure the limit set has the correct componentwise max and min
-hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
-hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
+hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.intermediate.model = g.intermediate.model)
+hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.intermediate.model = g.intermediate.model)
 
 Wtransbranch <- layer_inverse_angular_transform(input_dim=d)(input.pseudo.angles,hw_coordmax_branch,hw_coordmin_branch)
 gtransBranch = g.intermediate.model(Wtransbranch)
@@ -487,8 +487,8 @@ gauge.model <- load_model_weights_tf(gauge.model,filepath=paste0("Gauge_est/gaug
 W.supplement = sphere_sample
 
 #Adjust additional layers for dense hypersphere sample 
-hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
-hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
+hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.intermediate.model = g.intermediate.model)
+hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.intermediate.model = g.intermediate.model)
 
 Wtransbranch <- layer_inverse_angular_transform(input_dim=d)(input.pseudo.angles,hw_coordmax_branch,hw_coordmin_branch)
 gtransBranch = g.intermediate.model(Wtransbranch)
