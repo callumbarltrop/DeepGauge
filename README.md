@@ -6,7 +6,7 @@ In order to use the deepGauge framework via R, you first need to download and in
 
 First, make sure git is installed on your computer. Instructions can be found here: https://git-scm.com/book/en/v2/Getting-Started-Installing-Git 
 
-Next, make sure you have installed the Reticulate, Keras and Tensorflow packages on R using the following commands: 
+Next, make sure you have installed the Reticulate, Keras, and Tensorflow packages on R using the following commands: 
 
 ```r
 packages = c("keras","tensorflow","reticulate")
@@ -28,34 +28,34 @@ py_version <- "3.8.10"
 path_to_python <- reticulate::install_python(version=py_version)
 ```
  
-We then create a virtual environment called 'myenv', which we will use when running Keras.
+We then create a virtual environment called 'deepGauge_env', which we will use when running Keras.
 
 ```r
-reticulate::virtualenv_create(envname = 'myenv',
+reticulate::virtualenv_create(envname = 'deepGauge_env',
                               python=path_to_python,
                               version=py_version)
 ```
  
-Restart R, then try loading in 'myenv' using the following command: 
+Restart R, then try loading in 'deepGauge_env' using the following command: 
 
 ```r
-reticulate::use_virtualenv("myenv", required = T)
+reticulate::use_virtualenv("deepGauge_env", required = T)
 ```
 
 If this does not work, use ChatGPT to debug. Sometimes the setup can be slightly different between Windows and Linux. Next, we install tensorflow and keras within the virtual environment. 
 
 ```r
 tf_version="2.11.0" 
-reticulate::use_virtualenv("myenv", required = T)
-tensorflow::install_tensorflow(method="virtualenv", envname="myenv",
+reticulate::use_virtualenv("deepGauge_env", required = T)
+tensorflow::install_tensorflow(method="virtualenv", envname="deepGauge_env",
                                version=tf_version) #Install version of tensorflow in virtual environment
-keras::install_keras(method = c("virtualenv"), envname = "myenv",version=tf_version) #Install keras
+keras::install_keras(method = c("virtualenv"), envname = "deepGauge_env",version=tf_version) #Install keras
 ```
 
 Again, restart R. Finally, check if R can access Keras, and that the installation has completed without any problems
 
 ```r
-reticulate::use_virtualenv("myenv", required = T)
+reticulate::use_virtualenv("deepGauge_env", required = T)
 keras::is_keras_available() #Check if keras is available
 ```
 

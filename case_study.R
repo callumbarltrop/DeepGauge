@@ -54,8 +54,8 @@ package.check <- lapply(
   }
 )
 
-#Load in python virtual environment called 'myenv'
-reticulate::use_virtualenv("myenv", required = T)
+#Load in python virtual environment called 'deepGauge_env'
+reticulate::use_virtualenv("deepGauge_env", required = T)
 
 #Check keras is available 
 keras::is_keras_available() #should return TRUE
