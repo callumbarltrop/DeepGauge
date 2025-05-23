@@ -443,15 +443,15 @@ adjusted.g.branch <- layer_limitset_to_gauge(adjusted_dGtrans_branch, input_dim=
 output <- layer_concatenate(c(alphaBranch,adjusted.g.branch,input.rlb))
 
 #Construct the Keras model
-gauge_model <- keras_model(
+gauge.model <- keras_model(
   inputs = c(input.pseudo.angles,input.rlb),
   outputs = output
 )
-summary(gauge_model)
+summary(gauge.model)
 
 #Compile the model with the adam optimiser. 
 #The loss function 'truncGamma_nll' is stored in the preamble.R file
-gauge_model %>% compile(
+gauge.model %>% compile(
     optimizer=optimizer_adam(learning_rate=0.001),
     loss = truncGamma_nll,
     run_eagerly=T
@@ -470,7 +470,7 @@ n.epochs <- 50
 batch.size <- 4096
 
 if(fit_models == T){
-history <- gauge_model %>% fit(
+history <- gauge.model %>% fit(
   list(W,r.lb), R.train,
   epochs = n.epochs, batch_size = batch.size,
   callback=list(checkpoint,callback_early_stopping(monitor = "val_loss",
@@ -481,7 +481,7 @@ history <- gauge_model %>% fit(
 }
 
 #Load the best fitting model from the checkpoint save
-gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge.model <- load_model_weights_tf(gauge.model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 #We now alter the W.supplement to be the dense hypersphere sample. This additional step makes sure the estimated limit set has exactly 1 and -1 for componentwise max and min
 W.supplement = sphere_sample
@@ -507,21 +507,21 @@ batch.size <- 4096
 output <- layer_concatenate(c(alphaBranch,adjusted.g.branch,input.rlb)) 
 
 #Construct the Keras model
-gauge_model <- keras_model(
+gauge.model <- keras_model(
   inputs = c(input.pseudo.angles,input.rlb), 
   outputs = output
 )
-summary(gauge_model)
+summary(gauge.model)
 
 #Compile the model with the adam optimiser
-gauge_model %>% compile(
+gauge.model %>% compile(
   optimizer=optimizer_adam(learning_rate=0.001),
   loss = truncGamma_nll,
   run_eagerly=T
 )
 
 if(fit_models == T){
-history <- gauge_model %>% fit(
+history <- gauge.model %>% fit(
   list(W,r.lb), R.train,
   epochs = n.epochs, batch_size = batch.size,
   callback=list(checkpoint,callback_early_stopping(monitor = "val_loss", 
@@ -532,10 +532,10 @@ history <- gauge_model %>% fit(
 }
 
 #Load the best fitting model from the checkpoint save
-gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge.model <- load_model_weights_tf(gauge.model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 #Compute the gauge function for each point on the dense hypersphere sample  
-pred.gauge.hypersphere = k_get_value(gauge_model(list(k_constant((sphere_sample)),
+pred.gauge.hypersphere = k_get_value(gauge.model(list(k_constant((sphere_sample)),
                                                     k_constant(as.matrix(rep(1,nrow(sphere_sample)))))))[,2]
 #Compute the limit set at all angles, then evaluate the componentwise maxima and minima
 #These should be approx. equal to 1 and -1. Note this will not be perfect  
@@ -553,7 +553,7 @@ print(apply(sphere_sample/pred.gauge.hypersphere,2,min))
 #Load in the best fitting quantile and gauge function models 
 quant.model <- load_model_tf(paste0("QR_est/best_qr_fit_",site_num),custom_objects = list("tilted_loss" = tilted_loss))
 
-gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge.model <- load_model_weights_tf(gauge.model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 #Evaluate quantile function at observed angles 
 pred.quant = k_get_value(quant.model(k_constant(W))) 
@@ -571,7 +571,7 @@ dim(r.lb)=c(length(r.lb),1)
 #Get the QQ plot associated with truncated Gamma distributions
 
 #Get gauge estimates from observed data
-predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(r.lb)))) 
+predictions = k_get_value(gauge.model(list(k_constant(W),k_constant(r.lb)))) 
 
 #First column of predictions gives the alpha estimate. 
 pred.alpha=predictions[1,1]
@@ -636,7 +636,7 @@ two_dim_gauge <- function(w2,subvec,d){
   
   pred_quant_temp = k_get_value(quant.model(k_constant(w_mat))) 
   
-  gauge_mat = r_mat*k_get_value(gauge_model(list(k_constant(w_mat),k_constant(pred_quant_temp))))[,2]
+  gauge_mat = r_mat*k_get_value(gauge.model(list(k_constant(w_mat),k_constant(pred_quant_temp))))[,2]
   
   min_index = which.min(gauge_mat)
   
@@ -654,7 +654,7 @@ two_dim_gauge <- function(w2,subvec,d){
   
   r_lb_min = k_constant(k_get_value(quant.model(k_constant(w_min))))
   
-  g_min = k_get_value(gauge_model(list(k_constant(w_min),r_lb_min)))[,2]
+  g_min = k_get_value(gauge.model(list(k_constant(w_min),r_lb_min)))[,2]
   
   return(g_min)
   
@@ -726,7 +726,7 @@ W=data_lap/polar$r
 pred.quant = k_get_value(quant.model(k_constant(W))) 
 
 #Get gauge estimates from observed data
-predictions = k_get_value(gauge_model(list(k_constant(W),k_constant(pred.quant)))) 
+predictions = k_get_value(gauge.model(list(k_constant(W),k_constant(pred.quant)))) 
 
 #First column of predictions gives the alpha estimate. 
 pred.alpha=predictions[1,1]
@@ -778,7 +778,7 @@ r.lb = k_get_value(quant.model(k_constant(hypersphere)))
 dim(r.lb)=c(length(r.lb),1)
 
 #Get gauge estimates from points on hypersphere
-predictions_hypersphere = k_get_value(gauge_model(list(k_constant(hypersphere),k_constant(r.lb)))) 
+predictions_hypersphere = k_get_value(gauge.model(list(k_constant(hypersphere),k_constant(r.lb)))) 
 
 #Second column of predictions gives the gauge estimate. 
 pred.gauge=predictions_hypersphere[,2]
@@ -828,7 +828,7 @@ unif.sample = runif(n.sim)
 pred.quant.sample = k_get_value(quant.model(k_constant(W.sample))) 
 
 #Get gauge estimates from simulated data
-predictions.sample = k_get_value(gauge_model(list(k_constant(W.sample),k_constant(pred.quant.sample)))) 
+predictions.sample = k_get_value(gauge.model(list(k_constant(W.sample),k_constant(pred.quant.sample)))) 
 
 #First column of predictions gives the alpha estimate. 
 pred.alpha.sample=predictions.sample[1,1]
