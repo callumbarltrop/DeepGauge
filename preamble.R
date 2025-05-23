@@ -222,7 +222,7 @@ inverse_angular_function = function(wstar,upper_max,lower_min){
 }
 
 #Checking for required packages. This function will install any required packages if they are not already installed
-packages = c("ismev","evd","randcorr","mvtnorm") #,"keras","tensorflow", reticulate
+packages = c("ismev","evd","randcorr","mvtnorm","rgl","magick") #,"keras","tensorflow", reticulate
 package.check <- lapply(
   packages,
   FUN = function(x) {

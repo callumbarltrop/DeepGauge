@@ -1,39 +1,85 @@
-# deepGauge
+# deepGaugePublic -- example code for fitting the deepGauge framework of Murphy-Barltrop et al. (2024)
 
-First, make sure git is installed on your computer.
+In order to use the deepGauge framework via R, you first need to download and install Tensorflow and Keras on your workstation. This involves several steps which we detail below.
 
-Next, make sure you have installed the reticulate package on R.
+## Instructions 
 
-Then, install the correct version of Python via the commands below. 
+First, make sure git is installed on your computer. Instructions can be found here: https://git-scm.com/book/en/v2/Getting-Started-Installing-Git 
+
+Next, make sure you have installed the Reticulate, Keras and Tensorflow packages on R using the following commands: 
+
+```r
+packages = c("keras","tensorflow","reticulate")
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+```
+
+After installing, restart R. Please restart after every step in this installation process. We then use Reticulate to install the correct version of Python via following commands:
  
-We will then create a virtual environment called 'myenv' which we will use when running Keras.
- 
-Restart R, then try loading in myenv. If this does not work, use ChatGPT to debug.
-
-We will then install tensorflow and keras in the virtual environment. This will ensure both packages can be access by the python session.
-
-Finally, we check that keras has install properly and there are no issues. 
- 
-## Tensorflow Installation 
-
 ```r
 py_version <- "3.8.10"
 path_to_python <- reticulate::install_python(version=py_version)
+```
+ 
+We then create a virtual environment called 'myenv', which we will use when running Keras.
 
-#Create a virtual envionment 'myenv' with Python 3.8.10. Install tensorflow  within this environment.
+```r
 reticulate::virtualenv_create(envname = 'myenv',
                               python=path_to_python,
                               version=py_version)
+```
+ 
+Restart R, then try loading in 'myenv' using the following command: 
 
-path<- paste0(reticulate::virtualenv_root(),"/myenv/bin/python") #these bits not needed
-Sys.setenv(RETICULATE_PYTHON = path) #Set Python interpreter to that installed in myenv
+```r
+reticulate::use_virtualenv("myenv", required = T)
+```
 
+If this does not work, use ChatGPT to debug. Sometimes the setup can be slightly different between Windows and Linux. Next, we install tensorflow and keras within the virtual environment. 
+
+```r
 tf_version="2.11.0" 
 reticulate::use_virtualenv("myenv", required = T)
 tensorflow::install_tensorflow(method="virtualenv", envname="myenv",
                                version=tf_version) #Install version of tensorflow in virtual environment
 keras::install_keras(method = c("virtualenv"), envname = "myenv",version=tf_version) #Install keras
-
-keras::is_keras_available() #Check if keras is available
-
 ```
+
+Again, restart R. Finally, check if R can access Keras, and that the installation has completed without any problems
+
+```r
+reticulate::use_virtualenv("myenv", required = T)
+keras::is_keras_available() #Check if keras is available
+```
+
+If there are any problems, we recommend always restarting the R session and making sure the correct packages are loaded in. Moreover, ChatGPT (or any other LLM) can be a very useful tool for debugging such problems - just copy and paste the code along with any error messages.
+
+## Descriptions of the provided R scripts and folders  
+
+A brief description of each of the provided R scripts is given below
+
+* **case_study.R** - this file demonstrates how to fit the deepGauge framework to one of the metocean datasets considered in the Case Study of Murphy-Barltrop et al. (2024).  
+* **new_layers.R** - this file contains additional neural network layers required for imposing theoretical properties on the limit set.
+* **preamble.R** - this file contains a range of functions required for fitting the model.
+
+The repo also contains the following folders
+
+* **Datafiles** - this folder contains all of required datafiles for running the case_study.R file. 
+* **QR_est** - this folder provides a place for storing the weights associated with the quantile regression model.
+* **Gauge_est** - this folder provides a place for storing the weights associated with the gauge function model.
+* **Diagnostics** - this folder is where the visual diagnostics from case_study.R are stored. 
+
+## Questions?
+
+Please get in touch if you have any questions, or if you find a bug in the code. My email is callum.murphy-barltrop[at]tu-dresden.de 
+
+### References
+
+Murphy-Barltrop, C. J., Majumder, R., & Richards, J. (2024). Deep learning of multivariate extremes via a geometric representation. arXiv preprint arXiv:2406.19936.
