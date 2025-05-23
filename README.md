@@ -1,12 +1,12 @@
 # deepGaugePublic -- example code for fitting the deepGauge framework of Murphy-Barltrop et al. (2024)
 
-In order to use the deepGauge framework via R, you first need to download and install Tensorflow and Keras on your workstation. This involves several steps which we detail below.
+In order to use the deepGauge framework via R, you first need to download and install Tensorflow and Keras 2 on your workstation. This involves several steps which we detail below.
 
 ## Instructions 
 
 First, make sure git is installed on your computer. Instructions can be found here: https://git-scm.com/book/en/v2/Getting-Started-Installing-Git 
 
-Next, make sure you have installed the Reticulate, Keras, and Tensorflow packages on R using the following commands: 
+Next, make sure you have installed the `reticulate`, `keras`, and `tensorflow` packages on R using the following commands: 
 
 ```r
 packages = c("keras","tensorflow","reticulate")
@@ -24,7 +24,7 @@ package.check <- lapply(
 After installing, restart R. Please restart after every step in this installation process. We then use Reticulate to install the correct version of Python via following commands:
  
 ```r
-py_version <- "3.8.10"
+py_version <- "3.10.17"
 path_to_python <- reticulate::install_python(version=py_version)
 ```
  
@@ -42,13 +42,18 @@ Restart R, then try loading in 'deepGauge_env' using the following command:
 reticulate::use_virtualenv("deepGauge_env", required = T)
 ```
 
-If this does not work, use ChatGPT to debug. Sometimes the setup can be slightly different between Windows and Linux. Next, we install tensorflow and keras within the virtual environment. 
+If this does not work, one can instead use a conda environment; this may be a requirement of some linux systems. In this case, replace `use_virtualenv` with `use_condaenv' throughout.
+
+Next, we install tensorflow v2.11.0 and keras within the virtual environment. Note that your R session will automatically restart after installation.
 
 ```r
 tf_version="2.11.0" 
 reticulate::use_virtualenv("deepGauge_env", required = T)
 tensorflow::install_tensorflow(method="virtualenv", envname="deepGauge_env",
                                version=tf_version) #Install version of tensorflow in virtual environment
+```
+
+```r
 keras::install_keras(method = c("virtualenv"), envname = "deepGauge_env",version=tf_version) #Install keras
 ```
 

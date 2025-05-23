@@ -112,40 +112,6 @@ truncGamma_nll <- function( y_true, y_pred) {
   return(-K$sum(nll1+nll2)/K$sum(obsInds)) #Return average loss
 }
 
-censGamma_nll <- function( y_true, y_pred) {
-  
-  K <- backend()
-  
-  alpha=y_pred[all_dims(),1]
-  g=y_pred[all_dims(),2]
-  r.lb=y_pred[all_dims(),3]
-  r <- y_true[all_dims(),1]
-  # Find inds of non-missing obs.  Remove missing obs, i.e., -1e10. This is achieved by adding an
-  # arbitrarily large (<1e10) value to r and then taking the sign ReLu
-  obsInds=K$sign(K$relu(r+1e9))
-  exceedInds=K$sign(K$relu(r-r.lb))
-  
-  r <- K$relu(r)
-  
-  #For unobserved values of r only
-  r=r- r*(1-obsInds)+(1-obsInds) #If missing, set r to 1
-  g=g- g*(1-obsInds)+(1-obsInds) #If missing, set g to 1
-  r.lb=r.lb- r.lb*(1-obsInds)+(1-obsInds) #If missing, set r.lb to 1
-  
-  # Normal Gamma density
-  nll1 = alpha * K$log(g) + (alpha-1)*K$log(r) - g*r - tf$math$lgamma(alpha)
-  nll1=nll1- nll1*(1-obsInds) #If missing, set nll1 to 0
-  nll1=nll1- nll1*(1-exceedInds) #If non-exceed, set nll1 to 0
-  
-  
-  # Gamma distribution function for Gamma(alpha, g*r.lb)
-  nll2 = K$log(tf$math$igamma(alpha,g*r.lb))
-  nll2=nll2- nll2*(1-obsInds) #If missing, set nll2 to 0. Hence, nll1+nll2 is 0 if input r is missing.
-  nll2=nll2- nll2*(exceedInds) #If exceed, set nll2 to 0. 
-  
-  
-  return(-K$sum(nll1+nll2)/K$sum(obsInds)) #Return average loss
-}
 
 gauge_mv_norm = function(x,P){
   return(t( sapply(x,sign)*(abs(x))^(1/2) )%*%P%*%( sapply(x,sign)*(abs(x))^(1/2) ) )

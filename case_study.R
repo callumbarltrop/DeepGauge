@@ -7,42 +7,23 @@ fit_models = F
 #Fix a random seed to ensure reproducibility 
 set.seed(2311732) 
 
-# Arguments that specify the architectures and threshold level ---------------------------------------------
+
+
+
+#-------------------- Arguments that specify the architectures and threshold level ---------------------------------------------
 
 #Specify the quantile level 
 quant.level = 0.80
 
 #Specify the number of units in the hidden layers of the quantile regression neural network
-quant.nunits = eval(parse(text="c(64,64)"))
+quant.nunits = c(64,64)
 
 #Specify the number of units in the hidden layers of the deepGauge neural network
-gauge.nunits = eval(parse(text="c(64,64)")) 
+gauge.nunits = c(64,64) 
 
-# Load in data ------------------------------------------------------------
-
-#Load in example data set 
-site_num = 1
-
-data_orig = readRDS(file=paste0("Datafiles/wave_data_site_",site_num,".rds"))
-data_orig = cbind(data_orig$hs,data_orig$ws,data_orig$mslp)
-
-#Transform data to Laplace coordinates using rank/empirical transform. Note that we account for ties in the data at random. These ties come as a result of measurement accuracy
-data_lap = apply(apply(data_orig,2,function(x){return(rank(x,ties.method = "random")/(length(x)+1))}),2,Laplace_inverse)
-
-#Compute polar coordinates - see https://en.wikipedia.org/wiki/N-sphere
-polar = rect2polar(t(data_lap)) 
-
-#Compute sample size 
-n = dim(data_lap)[1]
-
-#Compute dimension of data
-d = dim(data_lap)[2]
-
-# Quantile regression procedure -----------------------------------------------------
 
 #Instigate Keras and Tensorflow
 
-#Load in keras and tensorflow in R
 packages = c("keras","tensorflow")
 package.check <- lapply(
   packages,
@@ -67,17 +48,47 @@ sess$list_devices()
 #Set seed for random initial dense layer weights. 
 tf$random$set_seed(1) 
 
+
+
+
+
+#-------------------- Load in data ------------------------------------------------------------
+
+#Load in example data set 
+site_num = 1
+
+data_orig = readRDS(file=paste0("Datafiles/wave_data_site_",site_num,".rds"))
+data_orig = cbind(data_orig$hs,data_orig$ws,data_orig$mslp)
+
+#Transform data to Laplace coordinates using rank/empirical transform. Note that we account for ties in the data at random. These ties come as a result of measurement accuracy
+data_lap = apply(apply(data_orig,2,function(x){return(rank(x,ties.method = "random")/(length(x)+1))}),2,Laplace_inverse)
+
+#Compute polar coordinates - see https://en.wikipedia.org/wiki/N-sphere
+polar = rect2polar(t(data_lap)) 
+
+#Compute sample size 
+n = dim(data_lap)[1]
+
+#Compute dimension of data
+d = dim(data_lap)[2]
+
+
 #Create training data; we label the response R and predictor variables W.
-R=polar$r
-W=data_lap/polar$r #These are points on the hypersphere 
+R = polar$r
+W = data_lap/polar$r #These are points on the hypersphere 
 
 rowSums(W^2)[1:10] #To illustrate that all of these points have radius 1
 
 #Select 20% of the data as a validation set
-valid.inds=sample(1:n,round(n/5))
+valid.inds = sample(1:n,round(n/5))
 
 R.train <- R[-valid.inds]; W.train <- W[-valid.inds,]
 R.valid <- R[valid.inds]; W.valid <- W[valid.inds,]
+
+
+
+#-------------------- Quantile regression  -----------------------------------------------------
+
 
 #Specify input layer
 #This is so that Keras knows what data shape/dimensions to expect.
@@ -89,10 +100,12 @@ input.pseudo.angles <- layer_input(shape = d, name = 'input.pseudo.angles')
 qBranch <- input.pseudo.angles %>%
   layer_dense(units = quant.nunits[1], activation = 'relu', name = 'q_dense1',
               kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) #First hidden layer
+if(length(quant.nunits) >= 2){              
 for(i in 2:length(quant.nunits)){
   qBranch  <- qBranch %>%
     layer_dense(units =quant.nunits[i], activation = 'relu', name = paste0('q_dense',i),
                 kernel_regularizer = regularizer_l1_l2(l1 = 1e-4, l2 = 1e-4)) #Subsequent hidden layers
+}
 }
 #Final output layer
 qBranch  <- qBranch %>% layer_dense(units =1, activation = "exponential", name = 'q_final',
@@ -106,9 +119,9 @@ model <- keras_model(
 )
 summary(model)
 
-#Define the loss. Note that custom loss functions in Keras must be written in a specific way, with input (y_true, y_pred)
-#All function calls must use the Keras/Tensorflow backend, e.g., K$max.
-#For quantile regression, we use the check/pinball/tilted loss.
+# Define the loss. Note that custom loss functions in Keras must be written in a specific way, with input (y_true, y_pred)
+# All function calls must use the Keras/Tensorflow backend, e.g., K$max.
+# For quantile regression, we use the check/pinball/tilted loss.
 tilted_loss <- function( y_true, y_pred) {
   K <- backend()
   
@@ -141,10 +154,13 @@ if(fit_models == T){
 #Train Keras model. Loss values will be stored in history object.
 history <- model %>% fit(
   list(W.train), R.train,
-  epochs = n.epochs, batch_size = batch.size,
-  callback=list(checkpoint,callback_early_stopping(monitor = "val_loss", 
+  epochs = n.epochs, 
+  batch_size = batch.size,
+  callback=list(checkpoint,
+                callback_early_stopping(monitor = "val_loss", 
                                                    min_delta = 0, patience = 5)),
-  validation_data=list(list(  input.pseudo.angles=W.valid),R.valid)
+  validation_data=list(list(  input.pseudo.angles = W.valid),
+                       R.valid)
   
 )
 }
@@ -169,14 +185,14 @@ print(quant.level)
 
 
 
-# Pre-training the neural network for the gauge function using the quantile function ------------------
+#--------------------Pre-training the neural network for the gauge function using the quantile function ------------------
 
 #We use the estimated quantile set as an initial estimate of the limit set/gauge function. 
 #This requires us to rescale the quantile set to lie in the [-1,1]^d box.
 
 #Load in a large sample of points on the hypersphere. These points are sampled uniformly and provide a dense coverage of the surface. 
 sphere_sample = readRDS(paste0("Datafiles/dsphere_sample_",d,"d.RDS"))
-sampling_points=dim(sphere_sample)[1]
+sampling_points = dim(sphere_sample)[1]
 
 #Evaluate the quantile function/set for every angle on the dense hypersphere sample 
 sample.init.pred.quant = k_get_value(quant.model(k_constant(sphere_sample))) 
@@ -212,10 +228,10 @@ gauge.lb <- apply(W,1,linf_norm)
 
 #Check we satisfy the theoretical lower bound. This value should be approximately 1.  
 #Note this wont be exactly due to the fact we only evaluate coordinate wise min/max values at a dense subset of angles. But it should be close
-mean(initial_gauge_est>=gauge.lb)
+mean(initial_gauge_est >= gauge.lb)
 
 #Select 20% of the data as a validation set
-valid.inds=sample(1:n,round(n/5))
+valid.inds = sample(1:n,round(n/5))
 
 #For this neural network, the response variable will simply be the initial estimate of the gauge function
 #When not in the validation/training set, we set the values equal to some arbitrarily small number, e.g., -1e10. These will then be ignored when evaluating the loss function
@@ -313,7 +329,12 @@ history <- model %>% fit(
 initial.gauge.weights = model$get_weights()
 
 
-# Estimate the gauge function with the pre-trained weights  ---------------
+
+
+
+
+
+#-------------------- Estimate the gauge function with the pre-trained weights  ---------------
 
 #Get the lower bound/conditioning threshold for R, i.e., the quantile estimate
 #We fit the truncated gamma above this level 
@@ -341,7 +362,7 @@ dim(r.lb)=c(length(r.lb),1)
 
 #Alongside the gauge function, we also have to estimate a constant shape parameter for the truncated gamma distribution  
 #Set initial alpha estimate to d - this is the theoretical asymptotic value for most cases.  
-init_alpha=d
+init_alpha = d
 
 #Input additional layers. Such layers ensure the estimated limit set has componentwise max and min equal to 1 and -1 (resp.)
 source("new_layers.R")					  
@@ -392,7 +413,7 @@ g.xBranch  <- g.xBranch %>% layer_dense(units =1, activation = "relu", name = 'g
 
 gBranch  <- layer_add(g.xBranch,input.glb) #Add lower bound to output to ensure validity 
 
-g.model <- keras_model(
+g.intermediate.model <- keras_model(
   inputs = c(input.pseudo.angles), 
   outputs = gBranch
 )
@@ -405,11 +426,11 @@ g.model <- keras_model(
 W.supplement = W
 
 #The lines below detail additional layers that to ensure the limit set has the correct componentwise max and min
-hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
-hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
+hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
+hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
 
 Wtransbranch <- layer_inverse_angular_transform(input_dim=d)(input.pseudo.angles,hw_coordmax_branch,hw_coordmin_branch)
-gtransBranch = g.model(Wtransbranch)
+gtransBranch = g.intermediate.model(Wtransbranch)
 dGtransbranch <- layer_multiply(1/gtransBranch, Wtransbranch)
 
 adjusted_dGtrans_branch <- layer_adjust(input_dim=d)(dGtransbranch,hw_coordmax_branch,hw_coordmin_branch)
@@ -422,15 +443,15 @@ adjusted.g.branch <- layer_limitset_to_gauge(adjusted_dGtrans_branch, input_dim=
 output <- layer_concatenate(c(alphaBranch,adjusted.g.branch,input.rlb))
 
 #Construct the Keras model
-model2 <- keras_model(
+gauge_model <- keras_model(
   inputs = c(input.pseudo.angles,input.rlb),
   outputs = output
 )
-summary(model2)
+summary(gauge_model)
 
 #Compile the model with the adam optimiser. 
 #The loss function 'truncGamma_nll' is stored in the preamble.R file
-model2 %>% compile(
+gauge_model %>% compile(
     optimizer=optimizer_adam(learning_rate=0.001),
     loss = truncGamma_nll,
     run_eagerly=T
@@ -449,7 +470,7 @@ n.epochs <- 50
 batch.size <- 4096
 
 if(fit_models == T){
-history <- model2 %>% fit(
+history <- gauge_model %>% fit(
   list(W,r.lb), R.train,
   epochs = n.epochs, batch_size = batch.size,
   callback=list(checkpoint,callback_early_stopping(monitor = "val_loss",
@@ -460,17 +481,17 @@ history <- model2 %>% fit(
 }
 
 #Load the best fitting model from the checkpoint save
-model2 <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 #We now alter the W.supplement to be the dense hypersphere sample. This additional step makes sure the estimated limit set has exactly 1 and -1 for componentwise max and min
 W.supplement = sphere_sample
 
 #Adjust additional layers for dense hypersphere sample 
-hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
-hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.model)
+hw_coordmax_branch <- layer_compute_max(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
+hw_coordmin_branch <- layer_compute_min(input.pseudo.angles, input_dim=d, W.supplement = W.supplement, g.model = g.intermediate.model)
 
 Wtransbranch <- layer_inverse_angular_transform(input_dim=d)(input.pseudo.angles,hw_coordmax_branch,hw_coordmin_branch)
-gtransBranch = g.model(Wtransbranch)
+gtransBranch = g.intermediate.model(Wtransbranch)
 dGtransbranch <- layer_multiply(1/gtransBranch, Wtransbranch)
 
 adjusted_dGtrans_branch <- layer_adjust(input_dim=d)(dGtransbranch,hw_coordmax_branch,hw_coordmin_branch)
@@ -486,21 +507,21 @@ batch.size <- 4096
 output <- layer_concatenate(c(alphaBranch,adjusted.g.branch,input.rlb)) 
 
 #Construct the Keras model
-model2 <- keras_model(
+gauge_model <- keras_model(
   inputs = c(input.pseudo.angles,input.rlb), 
   outputs = output
 )
-summary(model2)
+summary(gauge_model)
 
 #Compile the model with the adam optimiser
-model2 %>% compile(
+gauge_model %>% compile(
   optimizer=optimizer_adam(learning_rate=0.001),
   loss = truncGamma_nll,
   run_eagerly=T
 )
 
 if(fit_models == T){
-history <- model2 %>% fit(
+history <- gauge_model %>% fit(
   list(W,r.lb), R.train,
   epochs = n.epochs, batch_size = batch.size,
   callback=list(checkpoint,callback_early_stopping(monitor = "val_loss", 
@@ -511,24 +532,28 @@ history <- model2 %>% fit(
 }
 
 #Load the best fitting model from the checkpoint save
-model2 <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
-gauge_model <- model2
-				 
 #Compute the gauge function for each point on the dense hypersphere sample  
-pred.gauge.hypersphere =k_get_value(gauge_model(list(k_constant((sphere_sample)),
+pred.gauge.hypersphere = k_get_value(gauge_model(list(k_constant((sphere_sample)),
                                                     k_constant(as.matrix(rep(1,nrow(sphere_sample)))))))[,2]
 #Compute the limit set at all angles, then evaluate the componentwise maxima and minima
 #These should be approx. equal to 1 and -1. Note this will not be perfect  
 print(apply(sphere_sample/pred.gauge.hypersphere,2,max))
 print(apply(sphere_sample/pred.gauge.hypersphere,2,min))
 
-# Compute a range of visual diagnostics  ----------------------------------------------------
+
+
+
+
+
+
+#-------------------- Compute a range of visual diagnostics  ----------------------------------------------------
 
 #Load in the best fitting quantile and gauge function models 
 quant.model <- load_model_tf(paste0("QR_est/best_qr_fit_",site_num),custom_objects = list("tilted_loss" = tilted_loss))
 
-gauge_model <- load_model_weights_tf(model2,filepath=paste0("Gauge_est/gauge_fit_",site_num))
+gauge_model <- load_model_weights_tf(gauge_model,filepath=paste0("Gauge_est/gauge_fit_",site_num))
 
 #Evaluate quantile function at observed angles 
 pred.quant = k_get_value(quant.model(k_constant(W))) 
