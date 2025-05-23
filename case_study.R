@@ -1,8 +1,9 @@
+rm(list = ls())
 #Load in preamble containing functions and calling packages
 source("preamble.R")
 
 #Flag for whether to fit the model. Set this to FALSE if you have already fitted the models and just want to perform inference/compute diagnostics
-fit_models = F
+fit_models = T
 
 #Fix a random seed to ensure reproducibility 
 set.seed(2311732) 
