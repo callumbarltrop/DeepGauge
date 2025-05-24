@@ -5,12 +5,6 @@ source("preamble.R")
 #Flag for whether to fit the model. Set this to FALSE if you have already fitted the models and just want to perform inference/compute diagnostics
 fit_models = T
 
-#Fix a random seed to ensure reproducibility 
-set.seed(2311732) 
-
-
-
-
 #-------------------- Arguments that specify the architectures and threshold level ---------------------------------------------
 
 #Specify the quantile level 
@@ -46,8 +40,8 @@ keras::is_keras_available() #should return TRUE
 sess = tf$compat$v1$keras$backend$get_session()
 sess$list_devices()
 
-#Set seed for random initial dense layer weights. 
-tf$random$set_seed(1) 
+#Set seed for all the things - https://keras3.posit.co/reference/set_random_seed.html
+set_random_seed(1) 
 
 
 
