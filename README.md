@@ -1,4 +1,4 @@
-# deepGaugePublic -- example code for fitting the deepGauge framework of Murphy-Barltrop et al. (2024)
+# deepGauge -- example code for fitting the deepGauge framework of Murphy-Barltrop et al. (2024)
 
 In order to use the deepGauge framework via R, you first need to download and install Tensorflow and Keras 2 on your workstation. This involves several steps which we detail below.
 
